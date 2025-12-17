@@ -1,10 +1,32 @@
 <div class="space-y-3">
-    <div class="flex items-center justify-between text-sm text-gray-700">
+    @php
+        $facturasFiltradasIds = array_column($facturas, 'id');
+        $seleccionActual = $seleccionadas ?? [];
+        $todasSeleccionadas = array_values(array_unique(array_merge($seleccionActual, $facturasFiltradasIds)));
+    @endphp
+
+    <div class="flex flex-col gap-2 text-sm text-gray-700 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-wrap items-center gap-2">
+            <x-filament::button
+                color="gray"
+                size="sm"
+                type="button"
+                wire:click="$set('data.facturas_seleccionadas', @js($todasSeleccionadas))"
+            >
+                Seleccionar todas
+            </x-filament::button>
+
+            <x-filament::button
+                color="primary"
+                size="sm"
+                type="button"
+                wire:click="$set('data.facturas_seleccionadas', @js($seleccionAutomatica))"
+            >
+                Seleccionar automáticamente según monto
+            </x-filament::button>
+        </div>
+
         <div class="font-semibold">Facturas disponibles</div>
-        <label class="inline-flex items-center gap-2">
-            <input type="checkbox" class="rounded border-gray-300" wire:model.live="data.seleccionar_todas">
-            <span>Seleccionar todas</span>
-        </label>
     </div>
 
     <div class="overflow-x-auto border rounded-lg">
