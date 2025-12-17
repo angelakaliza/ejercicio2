@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
 use Filament\Resources\Pages\Page;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Forms\Components\View;
+use Filament\Notifications\Notification;
 
 
 class SolicitudPagoResource extends Resource
@@ -1210,20 +1211,8 @@ class SolicitudPagoResource extends Resource
                         TextInput::make('busqueda_facturas')
                             ->label('Buscar facturas')
                             ->placeholder('Buscar por número, proveedor o monto')
-                            ->live(debounce: 500),
-                        Toggle::make('seleccionar_todas')
-                            ->label('Seleccionar todas las facturas filtradas')
-                            ->live()
-                            ->afterStateUpdated(function (Set $set, Get $get, bool $state) use ($record) {
-                                $filtradas = self::facturasFiltradas($record, $get('busqueda_facturas'));
-                                $idsFiltrados = array_column($filtradas, 'id');
-                                $seleccionActual = $get('facturas_seleccionadas') ?? [];
-
-                                $set('facturas_seleccionadas', $state
-                                    ? array_values(array_unique(array_merge($seleccionActual, $idsFiltrados)))
-                                    : array_values(array_diff($seleccionActual, $idsFiltrados))
-                                );
-                            }),
+                            ->live(debounce: 500)
+                            ->afterStateUpdated(fn(Set $set, Get $get) => self::sincronizarSeleccionAutomatica($set, $get, $record)),
                         Hidden::make('facturas_seleccionadas')
                             ->default($record->detalles->pluck('id')->all())
                             ->required(),
@@ -1235,43 +1224,44 @@ class SolicitudPagoResource extends Resource
                                     'seleccionadas' => $get('facturas_seleccionadas') ?? [],
                                 ];
                             }),
-                        Placeholder::make('resumen_facturas')
-                            ->label('Resumen de facturas seleccionadas')
-                            ->content(function (Get $get) use ($record) {
+                        Hidden::make('confirmar_liberacion')
+                            ->default(false),
+                        View::make('filament.resources.solicitud-pago-resource.actions.resumen-facturas')
+                            ->columnSpanFull()
+                            ->viewData(function (Get $get) use ($record) {
                                 $seleccionadas = $get('facturas_seleccionadas') ?? [];
                                 $seleccionadasTotal = $record->detalles->whereIn('id', $seleccionadas)->sum('saldo');
                                 $monto = (float) ($get('monto_aprobado') ?? 0);
                                 $diferencia = $monto - $seleccionadasTotal;
-                                $totalFacturas = $record->detalles->count();
 
-                                $mensajeDiferencia = 'El monto coincide con el total seleccionado.';
-
-                                if ($diferencia > 0) {
-                                    $mensajeDiferencia = 'El monto supera el total seleccionado por ' . number_format($diferencia, 2);
-                                }
-
-                                if ($diferencia < 0) {
-                                    $mensajeDiferencia = 'El monto es menor al total seleccionado por ' . number_format(abs($diferencia), 2);
-                                }
-
-                                $pagadas = count($seleccionadas);
-                                $pendientes = max($totalFacturas - $pagadas, 0);
-
-                                return "Facturas seleccionadas: {$pagadas} | Facturas pendientes: {$pendientes} | Total seleccionado:"
-                                    . number_format($seleccionadasTotal, 2) . " | {$mensajeDiferencia}";
-                            })
-                            ->columnSpanFull(),
+                                return [
+                                    'totalFacturas' => $record->detalles->count(),
+                                    'facturasSeleccionadas' => count($seleccionadas),
+                                    'montoSeleccionado' => $seleccionadasTotal,
+                                    'diferencia' => $diferencia,
+                                    'montoIngresado' => $monto,
+                                    'accionSeleccionada' => $get('manejo_facturas') ?? 'aprobar_todo',
+                                ];
+                            }),
                         Radio::make('manejo_facturas')
                             ->label('Acción a realizar')
                             ->options(fn(Get $get) => self::opcionesDeAprobacion($record, $get))
                             ->default(fn(Get $get) => array_key_first(self::opcionesDeAprobacion($record, $get)))
                             ->required()
+                            ->afterStateUpdated(fn(Set $set) => $set('confirmar_liberacion', false))
                             ->columnSpanFull(),
                         Textarea::make('motivo_correccion')
                             ->label('Motivo de la corrección')
                             ->rows(4)
                             ->requiredIf('manejo_facturas', 'solicitar_correccion')
                             ->visible(fn(Get $get) => ($get('manejo_facturas') ?? null) === 'solicitar_correccion')
+                            ->columnSpanFull(),
+                        Placeholder::make('confirmacion_liberacion')
+                            ->label('Confirmación de liberación')
+                            ->visible(fn(Get $get) => ($get('manejo_facturas') ?? null) === 'aprobar_liberar')
+                            ->content(fn(Get $get) => view('filament.resources.solicitud-pago-resource.actions.confirmar-liberacion', [
+                                'confirmado' => $get('confirmar_liberacion') ?? false,
+                            ]))
                             ->columnSpanFull(),
                     ])
                     ->action(function (SolicitudPago $record, array $data) {
@@ -1287,7 +1277,21 @@ class SolicitudPagoResource extends Resource
                                 'motivo_correccion' => $data['motivo_correccion'] ?? 'Montos no coinciden con la selección realizada.',
                             ]);
 
+                            Notification::make()
+                                ->title('Solicitud marcada para corrección.')
+                                ->warning()
+                                ->send();
+
                             return;
+                        }
+
+                        if (($data['manejo_facturas'] ?? null) === 'aprobar_liberar' && ! ($data['confirmar_liberacion'] ?? false)) {
+                            Notification::make()
+                                ->title('Debes confirmar la liberación de las facturas no seleccionadas.')
+                                ->warning()
+                                ->send();
+
+                            throw \Filament\Support\Exceptions\Halt::make();
                         }
 
                         DB::transaction(function () use ($record, $data, $seleccionadas) {
@@ -1306,7 +1310,7 @@ class SolicitudPagoResource extends Resource
                                 ]);
                             });
 
-                            if (($data['manejo_facturas'] ?? 'aprobar') === 'aprobar') {
+                            if (($data['manejo_facturas'] ?? 'aprobar_todo') === 'aprobar_liberar') {
                                 $record->detalles()->whereNotIn('id', $seleccionadas)->delete();
                             }
 
@@ -1315,6 +1319,11 @@ class SolicitudPagoResource extends Resource
                                 'aprobado_por' => Auth::id(),
                             ]);
                         });
+
+                        Notification::make()
+                            ->title('Solicitud aprobada correctamente.')
+                            ->success()
+                            ->send();
                     })
                     ->modalHeading('Aprobar pago de la solicitud')
                     ->modalSubmitActionLabel('Confirmar acción'),
@@ -1391,14 +1400,18 @@ class SolicitudPagoResource extends Resource
             ->all();
     }
 
-    protected static function calcularSeleccionAutomatica(SolicitudPago $record, float $monto): array
+    protected static function calcularSeleccionAutomatica(SolicitudPago $record, float $monto, ?string $busqueda): array
     {
         $seleccionadas = [];
         $acumulado = 0;
 
-        foreach (self::facturasFiltradas($record, null) as $factura) {
+        foreach (self::facturasFiltradas($record, $busqueda) as $factura) {
             if ($acumulado >= $monto) {
                 break;
+            }
+
+            if (($acumulado + $factura['saldo']) > $monto && $monto > 0) {
+                continue;
             }
 
             $seleccionadas[] = $factura['id'];
@@ -1415,7 +1428,9 @@ class SolicitudPagoResource extends Resource
         }
 
         $monto = (float) ($get('monto_aprobado') ?? 0);
-        $set('facturas_seleccionadas', self::calcularSeleccionAutomatica($record, $monto));
+        $seleccionadas = self::calcularSeleccionAutomatica($record, $monto, $get('busqueda_facturas'));
+
+        $set('facturas_seleccionadas', $seleccionadas);
     }
 
     protected static function opcionesDeAprobacion(SolicitudPago $record, Get $get): array
@@ -1428,12 +1443,12 @@ class SolicitudPagoResource extends Resource
 
         if ($todasSeleccionadas && $coincideMonto) {
             return [
-                'aprobar' => 'Aprobar',
+                'aprobar_todo' => 'Aprobar',
             ];
         }
 
         return [
-            'aprobar' => 'Aprobar las facturas seleccionadas y liberar el resto',
+            'aprobar_liberar' => 'Aprobar las facturas seleccionadas y liberar el resto',
             'solicitar_correccion' => 'Solicitar corrección',
         ];
     }
