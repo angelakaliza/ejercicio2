@@ -14,12 +14,15 @@ class SolicitudPago extends Model
         'proveedor_nombre',
         'fecha',
         'motivo',
+        'motivo_correccion',
         'tipo_solicitud',
         'empresas_seleccionadas',
         'sucursales_seleccionadas',
         'proveedores_seleccionados',
         'total',
         'estado',
+        'aprobado_por',
+        'aprobado_en',
     ];
 
     protected $casts = [
@@ -28,6 +31,7 @@ class SolicitudPago extends Model
         'empresas_seleccionadas' => 'array',
         'sucursales_seleccionadas' => 'array',
         'proveedores_seleccionados' => 'array',
+        'aprobado_en' => 'datetime',
     ];
 
     public function empresa()
@@ -43,5 +47,10 @@ class SolicitudPago extends Model
     public function adjuntos()
     {
         return $this->hasMany(SolicitudPagoAdjunto::class);
+    }
+
+    public function aprobaciones()
+    {
+        return $this->hasMany(AprobacionPago::class);
     }
 }
