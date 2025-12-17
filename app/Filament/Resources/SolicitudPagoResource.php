@@ -20,6 +20,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
@@ -35,6 +36,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Carbon;
 use Filament\Resources\Pages\Page;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Forms\Components\View;
+
 
 class SolicitudPagoResource extends Resource
 {
