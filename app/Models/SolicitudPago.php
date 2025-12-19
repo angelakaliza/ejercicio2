@@ -19,12 +19,17 @@ class SolicitudPago extends Model
         'sucursales_seleccionadas',
         'proveedores_seleccionados',
         'total',
+        'monto_aprobado',
+        'monto_estimado',
+        'usuario_aprobador_id',
         'estado',
     ];
 
     protected $casts = [
         'fecha' => 'date',
         'total' => 'float',
+        'monto_aprobado' => 'float',
+        'monto_estimado' => 'float',
         'empresas_seleccionadas' => 'array',
         'sucursales_seleccionadas' => 'array',
         'proveedores_seleccionados' => 'array',
