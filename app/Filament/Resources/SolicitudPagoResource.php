@@ -27,6 +27,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use App\Filament\Pages\SolicitudPagoFacturas;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -1174,8 +1175,14 @@ class SolicitudPagoResource extends Resource
                             });
                     })
                     ->modalButton('Guardar adjuntos'),
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\Action::make('gestionar')
+                    ->label('Gestionar')
+                    ->icon('heroicon-o-pencil-square')
+                    ->color('primary')
+                    ->url(fn (SolicitudPago $record) => SolicitudPagoFacturas::getUrl([
+                        'record' => $record,
+                        'mode' => 'edit',
+                    ])),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([

@@ -22,6 +22,7 @@ class SolicitudPago extends Model
         'total',
         'monto_aprobado',
         'monto_estimado',
+        'monto_utilizado',
         'aprobado_por_id',
         'estado',
     ];
@@ -31,6 +32,7 @@ class SolicitudPago extends Model
         'total' => 'float',
         'monto_aprobado' => 'float',
         'monto_estimado' => 'float',
+        'monto_utilizado' => 'float',
         'empresas_seleccionadas' => 'array',
         'sucursales_seleccionadas' => 'array',
         'proveedores_seleccionados' => 'array',
