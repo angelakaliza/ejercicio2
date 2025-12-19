@@ -5,9 +5,11 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\SolicitudPagoResource\Pages;
 use App\Filament\Resources\SolicitudPagoResource\RelationManagers\DetallesRelationManager;
 use App\Models\Empresa;
+use App\Models\AprobacionPago;
 use App\Models\SolicitudPago;
 use App\Models\SolicitudPagoDetalle;
 use App\Models\SolicitudPagoAdjunto;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
@@ -23,10 +25,12 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Actions\StaticAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -1075,6 +1079,156 @@ class SolicitudPagoResource extends Resource
                 //
             ])
             ->actions([
+                Tables\Actions\Action::make('aprobarPago')
+                    ->label('Aprobar Pago')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn(SolicitudPago $record) => strtoupper($record->estado) === 'PENDIENTE')
+                    ->form([
+                        CheckboxList::make('facturas')
+                            ->label('Facturas a considerar')
+                            ->options(fn(SolicitudPago $record) => $record->detalles->mapWithKeys(fn(SolicitudPagoDetalle $detalle) => [
+                                $detalle->id => sprintf('%s - %s (%s)', $detalle->numero_factura, $detalle->proveedor_nombre, number_format($detalle->monto, 2)),
+                            ])->all())
+                            ->default(fn(SolicitudPago $record) => $record->detalles->pluck('id')->all())
+                            ->columns(2)
+                            ->required()
+                            ->live(),
+                        TextInput::make('monto_a_pagar')
+                            ->label('Monto a pagar')
+                            ->numeric()
+                            ->required()
+                            ->minValue(0.01)
+                            ->rule(function (SolicitudPago $record) {
+                                return function (string $attribute, $value, $fail) use ($record) {
+                                    if ($value > $record->total) {
+                                        $fail('El monto no puede ser mayor al total de la solicitud.');
+                                    }
+                                };
+                            })
+                            ->live(),
+                        Placeholder::make('resumen_facturas')
+                            ->label('Resumen de facturas seleccionadas')
+                            ->content(function (Get $get, SolicitudPago $record) {
+                                $ids = $get('facturas') ?? [];
+                                $detalles = $record->detalles()->whereIn('id', $ids)->get();
+                                $montoSeleccionado = $detalles->sum('monto');
+                                $montoSolicitud = $record->total;
+
+                                return "Total seleccionado: $" . number_format($montoSeleccionado, 2) .
+                                    " | Total solicitud: $" . number_format($montoSolicitud, 2);
+                            }),
+                        Placeholder::make('estado_pago')
+                            ->label('Cobertura estimada')
+                            ->content(function (Get $get, SolicitudPago $record) {
+                                $monto = (float) ($get('monto_a_pagar') ?? 0);
+                                $detalles = $record->detalles()->whereIn('id', $get('facturas') ?? [])->orderBy('fecha_vencimiento')->get();
+
+                                $restante = $monto;
+                                $pagadas = 0;
+
+                                foreach ($detalles as $detalle) {
+                                    if ($restante >= $detalle->monto) {
+                                        $pagadas++;
+                                        $restante -= $detalle->monto;
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                $pendientes = max(count($detalles) - $pagadas, 0);
+
+                                return "Facturas que se pueden pagar: {$pagadas} | Facturas pendientes: {$pendientes}";
+                            }),
+                    ])
+                    ->action(function (SolicitudPago $record, array $data) {
+                        $facturasIds = $data['facturas'] ?? [];
+                        $monto = (float) ($data['monto_a_pagar'] ?? 0);
+
+                        if ($monto <= 0) {
+                            Notification::make()
+                                ->title('Debe ingresar un monto válido.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $detalles = $record->detalles()->whereIn('id', $facturasIds)->orderBy('fecha_vencimiento')->get();
+
+                        if ($detalles->isEmpty()) {
+                            Notification::make()
+                                ->title('Debe seleccionar al menos una factura.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $totalSeleccionado = $detalles->sum('monto');
+                        if ($monto > $totalSeleccionado) {
+                            Notification::make()
+                                ->title('El monto supera el total de las facturas seleccionadas.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $restante = $monto;
+                        $pagadas = [];
+
+                        foreach ($detalles as $detalle) {
+                            if ($restante >= $detalle->monto) {
+                                $pagadas[] = $detalle->id;
+                                $restante -= $detalle->monto;
+                            }
+                        }
+
+                        $pendientes = array_values(array_diff($facturasIds, $pagadas));
+
+                        AprobacionPago::create([
+                            'solicitud_pago_id' => $record->id,
+                            'user_id' => Auth::id(),
+                            'monto_aprobado' => $monto,
+                            'facturas_seleccionadas' => $facturasIds,
+                            'facturas_pagadas' => $pagadas,
+                            'facturas_pendientes' => $pendientes,
+                        ]);
+
+                        $record->update([
+                            'estado' => 'APROBADA',
+                            'aprobado_por' => Auth::id(),
+                            'aprobado_en' => now(),
+                        ]);
+
+                        Notification::make()
+                            ->title('Solicitud aprobada y registro de aprobación creado.')
+                            ->success()
+                            ->send();
+                    }),
+                Tables\Actions\Action::make('correccion')
+                    ->label('Corrección')
+                    ->icon('heroicon-o-pencil-square')
+                    ->color('warning')
+                    ->visible(fn(SolicitudPago $record) => strtoupper($record->estado) === 'PENDIENTE')
+                    ->form([
+                        Textarea::make('motivo_correccion')
+                            ->label('Motivo de la corrección')
+                            ->required()
+                            ->columnSpanFull(),
+                    ])
+                    ->action(function (SolicitudPago $record, array $data) {
+                        $record->update([
+                            'estado' => 'PENDIENTE CORRECCIÓN',
+                            'motivo_correccion' => $data['motivo_correccion'] ?? null,
+                        ]);
+
+                        Notification::make()
+                            ->title('La solicitud fue marcada para corrección.')
+                            ->success()
+                            ->send();
+                    }),
                 Tables\Actions\Action::make('verFacturas')
                     ->label('Ver facturas')
                     ->icon('heroicon-o-eye')
@@ -1174,11 +1328,8 @@ class SolicitudPagoResource extends Resource
                     ->modalButton('Guardar adjuntos'),
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\DeleteBulkAction::make(),
-            ]);
+            ->bulkActions([]);
     }
 
     public static function getRelations(): array
