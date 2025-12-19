@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('solicitud_pagos', function (Blueprint $table) {
-            $table->decimal('monto_aprobado', 15, 2)->default(0)->after('total');
+           // $table->decimal('monto_aprobado', 15, 2)->default(0)->after('total');
             $table->decimal('monto_estimado', 15, 2)->default(0)->after('monto_aprobado');
             $table->foreignId('aprobado_por_id')->nullable()->after('monto_estimado')->constrained('users');
         });

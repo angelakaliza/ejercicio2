@@ -37,40 +37,44 @@ class AdminPanelProvider extends PanelProvider
                 'primary' => Color::Amber,
             ])
             ->navigation(function (NavigationBuilder $navigation) {
-                // Esta es la forma correcta de obtener el usuario autenticado
-                $user = auth()->user();
+    $user = auth()->user();
 
-                if (!$user) {
-                    return $navigation;
-                }
+    if (!$user) {
+        return $navigation;
+    }
 
-                // Obtener menús según el rol del usuario
-                $menuItems = Menu::whereHas('roles', function ($query) use ($user) {
-                    $query->whereIn('name', $user->roles->pluck('name'));
-                })->orWhereDoesntHave('roles')->orderBy('orden')->get();
+    $menuItems = Menu::whereHas('roles', function ($query) use ($user) {
+        $query->whereIn('name', $user->roles->pluck('name'));
+    })->orWhereDoesntHave('roles')->orderBy('orden')->get();
 
-                $navigationItems = [];
-                foreach ($menuItems as $menuItem) {
-                    $navigationItems[] = NavigationItem::make($menuItem->nombre)
-                        ->icon($menuItem->icono)
-                        ->url($menuItem->ruta)
-                        ->isActiveWhen(fn (): bool => request()->routeIs($menuItem->ruta));
-                }
+    $items = [];
+    foreach ($menuItems as $menuItem) {
+        $items[] = NavigationItem::make($menuItem->nombre)
+            ->icon($menuItem->icono)
+            ->url($menuItem->ruta)
+            ->isActiveWhen(fn (): bool => request()->routeIs($menuItem->ruta));
+    }
 
-                $navigationItems[] = NavigationGroup::make('Solicitudes de Pago y Aprobaciones')
-                    ->items([
-                        NavigationItem::make('Presupuesto de pago a proveedores')
-                            ->icon('heroicon-o-document-currency-dollar')
-                            ->url(PresupuestoPagoProveedores::getUrl())
-                            ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.pages.presupuesto-pago-proveedores')),
-                        NavigationItem::make('Solicitudes de pago')
-                            ->icon('heroicon-o-banknotes')
-                            ->url(SolicitudPagoResource::getUrl())
-                            ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.solicitud-pagos.*')),
-                    ]);
+    $groups = [
+        NavigationGroup::make('Solicitudes de Pago y Aprobaciones')
+            ->items([
+                NavigationItem::make('Presupuesto de pago a proveedores')
+                    ->icon('heroicon-o-document-currency-dollar')
+                    ->url(PresupuestoPagoProveedores::getUrl())
+                    ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.pages.presupuesto-pago-proveedores')),
 
-                return $navigation->items($navigationItems);
-            })
+                NavigationItem::make('Solicitudes de pago')
+                    ->icon('heroicon-o-banknotes')
+                    ->url(SolicitudPagoResource::getUrl())
+                    ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.solicitud-pagos.*')),
+            ]),
+    ];
+
+    return $navigation
+        ->items($items)
+        ->groups($groups);
+})
+
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
