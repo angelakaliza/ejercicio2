@@ -11,6 +11,7 @@ use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -278,6 +279,10 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                     Forms\Components\Placeholder::make('monto_estimado')
                         ->label('Monto estimado (total seleccionado)')
                         ->content(fn () => '$' . number_format($this->totalSeleccionado, 2, '.', ',')),
+                    Forms\Components\Textarea::make('motivo')
+                        ->label('Motivo de la solicitud')
+                        ->rows(3)
+                        ->columnSpanFull(),
                     Forms\Components\TextInput::make('monto_aprobado')
                         ->label('Monto aprobado')
                         ->required()
@@ -335,7 +340,7 @@ class PresupuestoPagoProveedores extends Page implements HasForms
 
         $montoEstimado = $this->totalSeleccionado;
         $montoAprobado = (float) ($data['monto_aprobado'] ?? 0);
-
+        
         if ($montoAprobado <= 0) {
             Notification::make()
                 ->title('Ingrese un monto aprobado válido')
@@ -350,7 +355,7 @@ class PresupuestoPagoProveedores extends Page implements HasForms
         $primerProveedor = collect($selected)->pluck('proveedor_codigo')->filter()->first();
         $proveedorNombre = collect($selected)->pluck('proveedor_nombre')->filter()->unique()->implode(', ');
 
-        DB::transaction(function () use ($conexion, $empresasSeleccionadas, $sucursalesSeleccionadas, $selected, $montoEstimado, $montoAprobado, $primerProveedor, $proveedorNombre) {
+        DB::transaction(function () use ($conexion, $empresasSeleccionadas, $sucursalesSeleccionadas, $selected, $montoEstimado, $montoAprobado, $primerProveedor, $proveedorNombre, $data) {
             $solicitud = SolicitudPago::create([
                 'id_empresa' => $conexion,
                 'amdg_id_empresa' => $empresasSeleccionadas[0] ?? '',
@@ -358,6 +363,7 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                 'proveedor_id' => $primerProveedor ?? '',
                 'proveedor_nombre' => $proveedorNombre,
                 'fecha' => Carbon::now(),
+                'motivo' => $data['motivo'] ?? null,
                 'tipo_solicitud' => 'Presupuesto de Pago a Proveedores',
                 'empresas_seleccionadas' => $empresasSeleccionadas,
                 'sucursales_seleccionadas' => $sucursalesSeleccionadas,
