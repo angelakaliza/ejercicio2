@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Resources\SolicitudPagoResource;
 use App\Models\Empresa;
+use App\Models\SolicitudPago;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Actions\Action;
 use Filament\Forms;
@@ -16,6 +17,7 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class PresupuestoPagoProveedores extends Page implements HasForms
@@ -267,6 +269,24 @@ class PresupuestoPagoProveedores extends Page implements HasForms
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('createSolicitudPago')
+                ->label('Crear Solicitud de Pago')
+                ->icon('heroicon-o-document-plus')
+                ->color('primary')
+                ->modalWidth('lg')
+                ->form([
+                    Forms\Components\Placeholder::make('monto_estimado')
+                        ->label('Monto estimado (total seleccionado)')
+                        ->content(fn () => '$' . number_format($this->totalSeleccionado, 2, '.', ',')),
+                    Forms\Components\TextInput::make('monto_aprobado')
+                        ->label('Monto aprobado')
+                        ->required()
+                        ->numeric()
+                        ->prefix('$')
+                        ->minValue(0.01)
+                        ->rule('gt:0'),
+                ])
+                ->action(fn (array $data) => $this->createSolicitudPago($data)),
             Action::make('exportPdf')
                 ->label('Exportar PDF')
                 ->icon('heroicon-o-arrow-down-tray')
@@ -292,6 +312,101 @@ class PresupuestoPagoProveedores extends Page implements HasForms
         }
 
         return $this->getSelectedProviders();
+    }
+
+    protected function createSolicitudPago(array $data): void
+    {
+        $selected = $this->ensureSelection();
+
+        if ($selected === null) {
+            return;
+        }
+
+        $conexion = $this->filters['conexion'] ?? null;
+
+        if (! $conexion) {
+            Notification::make()
+                ->title('Seleccione una conexión para crear la solicitud')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $montoEstimado = $this->totalSeleccionado;
+        $montoAprobado = (float) ($data['monto_aprobado'] ?? 0);
+
+        if ($montoAprobado <= 0) {
+            Notification::make()
+                ->title('Ingrese un monto aprobado válido')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $empresasSeleccionadas = $this->filters['empresas'] ?? [];
+        $sucursalesSeleccionadas = $this->filters['sucursales'] ?? [];
+        $primerProveedor = collect($selected)->pluck('proveedor_codigo')->filter()->first();
+        $proveedorNombre = collect($selected)->pluck('proveedor_nombre')->filter()->unique()->implode(', ');
+
+        DB::transaction(function () use ($conexion, $empresasSeleccionadas, $sucursalesSeleccionadas, $selected, $montoEstimado, $montoAprobado, $primerProveedor, $proveedorNombre) {
+            $solicitud = SolicitudPago::create([
+                'id_empresa' => $conexion,
+                'amdg_id_empresa' => $empresasSeleccionadas[0] ?? '',
+                'amdg_id_sucursal' => $sucursalesSeleccionadas[0] ?? null,
+                'proveedor_id' => $primerProveedor ?? '',
+                'proveedor_nombre' => $proveedorNombre,
+                'fecha' => Carbon::now(),
+                'tipo_solicitud' => 'Presupuesto de Pago a Proveedores',
+                'empresas_seleccionadas' => $empresasSeleccionadas,
+                'sucursales_seleccionadas' => $sucursalesSeleccionadas,
+                'proveedores_seleccionados' => $this->selectedProviders,
+                'total' => $montoEstimado,
+                'monto_estimado' => $montoEstimado,
+                'monto_aprobado' => $montoAprobado,
+                'aprobado_por_id' => Auth::id(),
+                'estado' => 'PENDIENTE',
+            ]);
+
+            $detalles = $this->mapDetallesDesdeSeleccion($selected, $conexion);
+
+            if (! empty($detalles)) {
+                $solicitud->detalles()->createMany($detalles);
+            }
+        });
+
+        $this->selectedProviders = [];
+
+        Notification::make()
+            ->title('Solicitud de Pago creada')
+            ->body('La solicitud se generó con los datos del presupuesto seleccionado.')
+            ->success()
+            ->send();
+    }
+
+    protected function mapDetallesDesdeSeleccion(array $proveedores, int $conexion): array
+    {
+        return collect($proveedores)
+            ->flatMap(function (array $proveedor) use ($conexion) {
+                return collect($proveedor['facturas'] ?? [])->map(function (array $factura) use ($conexion, $proveedor) {
+                    return [
+                        'id_empresa' => $conexion,
+                        'amdg_id_empresa' => $proveedor['empresa_codigo'] ?? '',
+                        'amdg_id_sucursal' => $proveedor['sucursal_codigo'] ?? null,
+                        'proveedor_codigo' => $proveedor['proveedor_codigo'] ?? '',
+                        'proveedor_nombre' => $proveedor['proveedor_nombre'] ?? '',
+                        'proveedor_ruc' => $proveedor['proveedor_ruc'] ?? null,
+                        'numero_factura' => $factura['numero'] ?? '',
+                        'fecha_emision' => $factura['fecha_emision'] ?? null,
+                        'fecha_vencimiento' => $factura['fecha_vencimiento'] ?? null,
+                        'monto' => isset($factura['monto']) ? (float) $factura['monto'] : (float) ($factura['saldo'] ?? 0),
+                        'saldo' => (float) ($factura['saldo'] ?? 0),
+                    ];
+                });
+            })
+            ->values()
+            ->all();
     }
 
     protected function getSelectedProviders(): array

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SolicitudPago extends Model
 {
@@ -19,20 +20,30 @@ class SolicitudPago extends Model
         'sucursales_seleccionadas',
         'proveedores_seleccionados',
         'total',
+        'monto_aprobado',
+        'monto_estimado',
+        'aprobado_por_id',
         'estado',
     ];
 
     protected $casts = [
         'fecha' => 'date',
         'total' => 'float',
+        'monto_aprobado' => 'float',
+        'monto_estimado' => 'float',
         'empresas_seleccionadas' => 'array',
         'sucursales_seleccionadas' => 'array',
         'proveedores_seleccionados' => 'array',
     ];
 
-    public function empresa()
+    public function empresa(): BelongsTo
     {
         return $this->belongsTo(Empresa::class, 'id_empresa');
+    }
+
+    public function aprobador(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'aprobado_por_id');
     }
 
     public function detalles()
