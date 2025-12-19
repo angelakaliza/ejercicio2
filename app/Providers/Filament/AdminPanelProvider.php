@@ -6,6 +6,7 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationBuilder;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -19,6 +20,8 @@ use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use App\Models\Menu;
+use App\Filament\Pages\PresupuestoPagoProveedores;
+use App\Filament\Resources\SolicitudPagoResource;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -46,6 +49,16 @@ class AdminPanelProvider extends PanelProvider
                 })->orWhereDoesntHave('roles')->orderBy('orden')->get();
 
                 $navigationItems = [];
+
+                $navigationItems[] = NavigationGroup::make('Solicitudes de Pago y Aprobaciones')
+                    ->items([
+                        \Filament\Navigation\NavigationItem::make('Presupuesto de pago a proveedores')
+                            ->icon('heroicon-o-banknotes')
+                            ->url(fn () => PresupuestoPagoProveedores::getUrl()),
+                        \Filament\Navigation\NavigationItem::make('Solicitudes de pago')
+                            ->icon(SolicitudPagoResource::getNavigationIcon() ?? 'heroicon-o-clipboard-document')
+                            ->url(fn () => SolicitudPagoResource::getUrl()),
+                    ]);
                 foreach ($menuItems as $menuItem) {
                     $navigationItems[] = \Filament\Navigation\NavigationItem::make($menuItem->nombre)
                         ->icon($menuItem->icono)
