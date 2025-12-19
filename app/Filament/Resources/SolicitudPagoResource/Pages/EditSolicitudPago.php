@@ -11,6 +11,8 @@ class EditSolicitudPago extends EditRecord
 {
     protected static string $resource = SolicitudPagoResource::class;
 
+    protected static string $view = 'filament.resources.solicitud-pago-resource.pages.formulario-solicitud';
+
     protected array $facturasSeleccionadas = [];
 
     protected function mutateFormDataBeforeFill(array $data): array

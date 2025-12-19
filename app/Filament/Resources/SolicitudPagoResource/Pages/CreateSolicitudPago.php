@@ -9,6 +9,8 @@ class CreateSolicitudPago extends CreateRecord
 {
     protected static string $resource = SolicitudPagoResource::class;
 
+    protected static string $view = 'filament.resources.solicitud-pago-resource.pages.formulario-solicitud';
+
     protected array $facturasSeleccionadas = [];
 
     protected function mutateFormDataBeforeCreate(array $data): array
