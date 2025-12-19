@@ -6,6 +6,7 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationBuilder;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -19,6 +20,8 @@ use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use App\Models\Menu;
+use App\Filament\Pages\PresupuestoPagoProveedores;
+use App\Filament\Resources\SolicitudPagoResource;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -52,6 +55,18 @@ class AdminPanelProvider extends PanelProvider
                         ->url($menuItem->ruta)
                         ->isActiveWhen(fn (): bool => request()->routeIs($menuItem->ruta));
                 }
+
+                $navigationItems[] = NavigationGroup::make('Solicitudes de Pago y Aprobaciones')
+                    ->items([
+                        \Filament\Navigation\NavigationItem::make('Presupuesto de pago a proveedores')
+                            ->icon('heroicon-o-banknotes')
+                            ->url(PresupuestoPagoProveedores::getUrl())
+                            ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.pages.presupuesto-pago-proveedores')),
+                        \Filament\Navigation\NavigationItem::make('Solicitudes de pago')
+                            ->icon('heroicon-o-document-text')
+                            ->url(SolicitudPagoResource::getUrl())
+                            ->isActiveWhen(fn (): bool => request()->routeIs('filament.admin.resources.solicitud-pagos.index')),
+                    ]);
 
                 return $navigation->items($navigationItems);
             })
