@@ -20,6 +20,8 @@ class SolicitudPago extends Model
         'proveedores_seleccionados',
         'total',
         'estado',
+        'aprobado_por',
+        'motivo_correccion',
     ];
 
     protected $casts = [
@@ -43,5 +45,15 @@ class SolicitudPago extends Model
     public function adjuntos()
     {
         return $this->hasMany(SolicitudPagoAdjunto::class);
+    }
+
+    public function aprobador()
+    {
+        return $this->belongsTo(User::class, 'aprobado_por');
+    }
+
+    public function aprobaciones()
+    {
+        return $this->hasMany(AprobacionPago::class);
     }
 }
