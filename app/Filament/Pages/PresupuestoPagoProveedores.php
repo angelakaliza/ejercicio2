@@ -278,6 +278,10 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                     Forms\Components\Placeholder::make('monto_estimado')
                         ->label('Monto estimado (total seleccionado)')
                         ->content(fn () => '$' . number_format($this->totalSeleccionado, 2, '.', ',')),
+                    Forms\Components\Textarea::make('motivo')
+                        ->label('Motivo de la solicitud')
+                        ->rows(3)
+                        ->required(),
                     Forms\Components\TextInput::make('monto_aprobado')
                         ->label('Monto aprobado')
                         ->required()
@@ -335,6 +339,7 @@ class PresupuestoPagoProveedores extends Page implements HasForms
 
         $montoEstimado = $this->totalSeleccionado;
         $montoAprobado = (float) ($data['monto_aprobado'] ?? 0);
+        $motivo = $data['motivo'] ?? null;
 
         if ($montoAprobado <= 0) {
             Notification::make()
@@ -350,13 +355,14 @@ class PresupuestoPagoProveedores extends Page implements HasForms
         $primerProveedor = collect($selected)->pluck('proveedor_codigo')->filter()->first();
         $proveedorNombre = collect($selected)->pluck('proveedor_nombre')->filter()->unique()->implode(', ');
 
-        DB::transaction(function () use ($conexion, $empresasSeleccionadas, $sucursalesSeleccionadas, $selected, $montoEstimado, $montoAprobado, $primerProveedor, $proveedorNombre) {
+        DB::transaction(function () use ($conexion, $empresasSeleccionadas, $sucursalesSeleccionadas, $selected, $montoEstimado, $montoAprobado, $primerProveedor, $proveedorNombre, $motivo) {
             $solicitud = SolicitudPago::create([
                 'id_empresa' => $conexion,
                 'amdg_id_empresa' => $empresasSeleccionadas[0] ?? '',
                 'amdg_id_sucursal' => $sucursalesSeleccionadas[0] ?? null,
                 'proveedor_id' => $primerProveedor ?? '',
                 'proveedor_nombre' => $proveedorNombre,
+                'motivo' => $motivo,
                 'fecha' => Carbon::now(),
                 'tipo_solicitud' => 'Presupuesto de Pago a Proveedores',
                 'empresas_seleccionadas' => $empresasSeleccionadas,
