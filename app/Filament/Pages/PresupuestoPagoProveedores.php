@@ -9,6 +9,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Actions\Action as FormAction;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -54,12 +55,14 @@ class PresupuestoPagoProveedores extends Page implements HasForms
 
     public int $perPage = 10;
     public string $search = '';
+    public string $sortField = 'nombre';
+    public string $sortDirection = 'asc';
 
     public function mount(): void
     {
         $this->form->fill([
-            'fecha_desde' => Carbon::now()->subMonth()->startOfDay(),
-            'fecha_hasta' => Carbon::now()->addMonth()->endOfDay(),
+            'fecha_desde' => Carbon::now()->subYears(5)->startOfDay(),
+            'fecha_hasta' => Carbon::now()->endOfDay(),
             'conexiones' => [],
         ]);
     }
@@ -92,7 +95,6 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                                 $set('empresas', $empresas);
                                 $set('sucursales', $sucursales);
                                 $this->resetPage();
-                                $this->loadPresupuesto();
                             }),
                         Select::make('empresas')
                             ->label('Empresas')
@@ -104,7 +106,6 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                             ->afterStateUpdated(function (): void {
                                 $this->syncSucursales();
                                 $this->resetPage();
-                                $this->loadPresupuesto();
                             }),
                         Select::make('sucursales')
                             ->label('Sucursales')
@@ -118,23 +119,29 @@ class PresupuestoPagoProveedores extends Page implements HasForms
                             ->live()
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadPresupuesto();
                             }),
                         DatePicker::make('fecha_desde')
                             ->label('Fecha desde')
-                            ->default(Carbon::now()->subMonth()->startOfDay())
+                            ->default(Carbon::now()->subYears(5)->startOfDay())
                             ->live()
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadPresupuesto();
                             }),
                         DatePicker::make('fecha_hasta')
                             ->label('Fecha hasta')
-                            ->default(Carbon::now()->addMonth()->endOfDay())
+                            ->default(Carbon::now()->endOfDay())
                             ->live()
+                            ->suffixAction(
+                                FormAction::make('generar')
+                                    ->label('Generar reporte')
+                                    ->color('primary')
+                                    ->button()
+                                    ->action(function (): void {
+                                        $this->generateReport();
+                                    }),
+                            )
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadPresupuesto();
                             }),
                     ]),
             ]);
@@ -255,6 +262,9 @@ class PresupuestoPagoProveedores extends Page implements HasForms
             return [];
         }
 
+        $empresas = array_values(array_unique($empresas));
+        $sucursales = array_values(array_unique($sucursales));
+
         $empresasDisponibles = SolicitudPagoResource::getEmpresasOptions($conexion);
         $sucursalesDisponibles = SolicitudPagoResource::getSucursalesOptions($conexion, $empresas);
         $proveedoresBase = SolicitudPagoResource::getProveedoresBase($conexion, $empresas, $sucursales);
@@ -286,9 +296,9 @@ class PresupuestoPagoProveedores extends Page implements HasForms
             ->groupBy('saedmcp.dmcp_cod_empr', 'saedmcp.dmcp_cod_sucu', 'saedmcp.clpv_cod_clpv', 'prov.clpv_nom_clpv', 'prov.clpv_ruc_clpv', 'saedmcp.dmcp_num_fac')
             ->havingRaw('SUM(COALESCE(saedmcp.dcmp_deb_ml,0) - COALESCE(saedmcp.dcmp_cre_ml,0)) <> 0');
 
-        if ($fechaDesde && $fechaHasta) {
-            $query->whereBetween('saedmcp.dcmp_fec_emis', [$fechaDesde, $fechaHasta]);
-        }
+        $query
+            ->when($fechaDesde, fn($q) => $q->whereDate('saedmcp.dcmp_fec_emis', '>=', $fechaDesde))
+            ->when($fechaHasta, fn($q) => $q->whereDate('saedmcp.dcmp_fec_emis', '<=', $fechaHasta));
 
         return $query->get()
             ->map(function ($row) use ($conexion, $conexionNombre, $empresasDisponibles, $sucursalesDisponibles, $proveedoresBase) {
@@ -529,6 +539,7 @@ class PresupuestoPagoProveedores extends Page implements HasForms
 
         // ✅ filtra aquí (en vivo) usando la barra de abajo
         $proveedores = $this->applySearch($proveedores)->values();
+        $proveedores = $this->applySorting($proveedores)->values();
 
         $page = $this->getPage();
         $items = $proveedores->forPage($page, $this->perPage)->values();
@@ -539,6 +550,47 @@ class PresupuestoPagoProveedores extends Page implements HasForms
             $this->perPage,
             $page
         );
+    }
+
+    public function sortBy(string $field): void
+    {
+        if ($this->sortField === $field) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortField = $field;
+            $this->sortDirection = 'asc';
+        }
+
+        $this->resetPage();
+    }
+
+    protected function applySorting($proveedores)
+    {
+        $direction = $this->sortDirection === 'asc' ? 'asc' : 'desc';
+
+        return match ($this->sortField) {
+            'total' => $proveedores->sortBy(
+                fn(array $proveedor) => (float) ($proveedor['total'] ?? 0),
+                SORT_REGULAR,
+                $direction === 'desc'
+            ),
+            'seleccionado' => $proveedores->sortBy(
+                fn(array $proveedor) => in_array($proveedor['key'], $this->selectedProviders, true) ? 0 : 1,
+                SORT_REGULAR,
+                $direction === 'desc'
+            ),
+            default => $proveedores->sortBy(
+                fn(array $proveedor) => mb_strtolower($proveedor['proveedor_nombre'] ?? ''),
+                SORT_NATURAL,
+                $direction === 'desc'
+            ),
+        };
+    }
+
+    public function generateReport(): void
+    {
+        $this->resetPage();
+        $this->loadPresupuesto();
     }
 
 
