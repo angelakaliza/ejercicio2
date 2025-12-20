@@ -88,13 +88,19 @@
                                             ${{ number_format((float) ($proveedor['total'] ?? 0), 2, '.', ',') }}
                                         </td>
                                         <td class="px-4 py-3">
-                                            <details
-                                                x-data="{ isOpen: {{ json_encode(in_array($proveedor['key'], $this->openProviders, true)) }} }"
-                                                x-bind:open="isOpen"
-                                                @toggle="isOpen = $event.target.open; $wire.setOpenProvider('{{ $proveedor['key'] }}', isOpen)"
-                                                class="rounded-md border border-gray-200 bg-slate-50 p-3">
-                                                <summary class="cursor-pointer text-sm font-semibold text-slate-700">Ver
-                                                    facturas agrupadas</summary>
+                                           <details
+    wire:ignore.self
+    x-data="{ isOpen: {{ json_encode(in_array($proveedor['key'], $this->openProviders, true)) }} }"
+    x-init="$el.open = isOpen"
+    @toggle="
+        isOpen = $event.target.open;
+        $wire.setOpenProvider('{{ $proveedor['key'] }}', isOpen);
+    "
+    class="rounded-md border border-gray-200 bg-slate-50 p-3"
+>
+    <summary class="cursor-pointer text-sm font-semibold text-slate-700">
+        Ver facturas agrupadas
+    </summary>
                                                 <div class="mt-2 space-y-3">
                                                     @foreach ($proveedor['empresas'] ?? [] as $empresa)
                                                         <div class="rounded-lg border border-slate-200 bg-white">
