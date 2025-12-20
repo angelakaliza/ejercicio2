@@ -93,7 +93,7 @@
 
             <div class="mt-4 space-y-4">
                 @php
-                    $selectionDisabled = $this->isViewMode();
+                    $allowSelection = ! $this->solicitud;
                 @endphp
 
                 <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -101,19 +101,21 @@
 
                         <input type="text" wire:model.live.debounce.300ms="search"
                             placeholder="Buscar proveedor, factura o RUC…"
-                            class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm focus:border-amber-500 focus:ring-amber-500"
-                            @disabled($selectionDisabled) />
+                            class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm focus:border-amber-500 focus:ring-amber-500" />
                     </div>
 
                     <button type="button" wire:click="$set('search','')"
-                        class="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
-                        @disabled($selectionDisabled)>
+                        class="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">
                         Limpiar
                     </button>
                 </div>
 
 
                 <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                    @php
+                        $columnsCount = $allowSelection ? 4 : 3;
+                    @endphp
+
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200 text-sm">
                             <thead class="bg-gray-50">
@@ -136,15 +138,17 @@
                                         </button>
                                     </th>
                                     <th class="px-4 py-2 text-left font-semibold text-gray-700">Facturas</th>
-                                    <th class="px-4 py-2 text-center font-semibold text-gray-700">
-                                        <button type="button" wire:click="sortBy('selected')"
-                                            class="flex items-center justify-center gap-1 w-full">
-                                            Seleccionar
-                                            @if ($sortField === 'selected')
-                                                <span class="text-xs text-amber-600">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
-                                            @endif
-                                        </button>
-                                    </th>
+                                    @if ($allowSelection)
+                                        <th class="px-4 py-2 text-center font-semibold text-gray-700">
+                                            <button type="button" wire:click="sortBy('selected')"
+                                                class="flex items-center justify-center gap-1 w-full">
+                                                Seleccionar
+                                                @if ($sortField === 'selected')
+                                                    <span class="text-xs text-amber-600">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                                                @endif
+                                            </button>
+                                        </th>
+                                    @endif
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 bg-white">
@@ -215,9 +219,11 @@
                                                                                         <th
                                                                                             class="px-3 py-1 text-right font-semibold text-gray-700">
                                                                                             Abono</th>
-                                                                                        <th
-                                                                                            class="px-3 py-1 text-center font-semibold text-gray-700">
-                                                                                            Seleccionar</th>
+                                                                                        @if ($allowSelection)
+                                                                                            <th
+                                                                                                class="px-3 py-1 text-center font-semibold text-gray-700">
+                                                                                                Seleccionar</th>
+                                                                                        @endif
                                                                                     </tr>
                                                                                 </thead>
                                                                                 <tbody class="divide-y divide-gray-100">
@@ -357,7 +363,7 @@
                                                                                                         x-on:input.debounce.400ms="commit()"
                                                                                                         x-on:blur="commit()"
                                                                                                         class="w-28 rounded border border-gray-300 px-2 py-1 text-right text-sm focus:border-amber-500 focus:ring-amber-500"
-                                                                                                        @disabled($selectionDisabled || !in_array($key, $this->selectedInvoices)) />
+                                                                                                        @disabled($allowSelection && !in_array($key, $this->selectedInvoices)) />
 
                                                                                                     <div
                                                                                                         class="text-[11px] text-gray-500">
@@ -368,15 +374,17 @@
 
 
                                                                                             </td>
-                                                                                            <td
-                                                                                                class="px-3 py-1 text-center">
-                                                                                                <input type="checkbox"
-                                                                                                    value="{{ $factura['key'] }}"
-                                                                                                    wire:model.live="selectedInvoices"
-                                                                                                    class="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                                                                                                    @disabled($selectionDisabled || (!in_array($factura['key'], $this->selectedInvoices) && $this->presupuestoDisponible <= 0)) />
+                                                                                            @if ($allowSelection)
+                                                                                                <td
+                                                                                                    class="px-3 py-1 text-center">
+                                                                                                    <input type="checkbox"
+                                                                                                        value="{{ $factura['key'] }}"
+                                                                                                        wire:model.live="selectedInvoices"
+                                                                                                        class="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                                                                                                        @disabled(!in_array($factura['key'], $this->selectedInvoices) && $this->presupuestoDisponible <= 0) />
 
-                                                                                            </td>
+                                                                                                </td>
+                                                                                            @endif
                                                                                         </tr>
                                                                                     @endforeach
                                                                                 </tbody>
@@ -390,12 +398,14 @@
                                                 </div>
                                             </details>
                                         </td>
-                                        <td class="px-4 py-3 text-center text-xs text-gray-500">Selección por factura
-                                        </td>
+                                        @if ($allowSelection)
+                                            <td class="px-4 py-3 text-center text-xs text-gray-500">Selección por factura
+                                            </td>
+                                        @endif
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="4" class="px-4 py-4 text-center text-sm text-gray-600">
+                                        <td colspan="{{ $columnsCount }}" class="px-4 py-4 text-center text-sm text-gray-600">
                                             Seleccione filtros para visualizar las facturas disponibles.</td>
                                     </tr>
                                 @endforelse

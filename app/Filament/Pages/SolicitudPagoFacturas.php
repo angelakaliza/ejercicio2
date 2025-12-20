@@ -45,8 +45,6 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
     public ?SolicitudPago $solicitud = null;
 
-    public string $mode = 'create';
-
     public int $perPage = 10;
 
     public string $search = '';
@@ -58,26 +56,23 @@ class SolicitudPagoFacturas extends Page implements HasForms
     public function mount(): void
     {
         $recordId = request()->integer('record');
-        $this->mode = request()->get('mode', 'create');
-
         if ($recordId) {
             $this->solicitud = SolicitudPago::with(['detalles'])->find($recordId);
         }
 
         if ($this->solicitud) {
             $this->hydrateFromRecord();
-
-            return;
         }
-
-        $this->mode = 'create';
-        $this->form->fill([
-            'fecha_desde' => Carbon::now()->subYears(5)->startOfDay(),
-            'fecha_hasta' => Carbon::now()->endOfDay(),
-            'monto_aprobado' => null,
-            'motivo' => null,
-            'conexiones' => [],
-        ]);
+        
+        if (! $this->solicitud) {
+            $this->form->fill([
+                'fecha_desde' => Carbon::now()->subYears(5)->startOfDay(),
+                'fecha_hasta' => Carbon::now()->endOfDay(),
+                'monto_aprobado' => null,
+                'motivo' => null,
+                'conexiones' => [],
+            ]);
+        }
     }
 
     public function updatedSearch(): void
@@ -247,15 +242,13 @@ class SolicitudPagoFacturas extends Page implements HasForms
                             ->numeric()
                             ->prefix('$')
                             ->minValue(0.01)
-                            ->default(fn() => $this->filters['monto_aprobado'] ?? null)
-                            ->disabled(fn() => $this->isViewMode()),
+                            ->default(fn() => $this->filters['monto_aprobado'] ?? null),
                         Textarea::make('motivo')
                             ->label('Comentario / Motivo')
                             ->rows(3)
                             ->maxLength(1000)
                             ->placeholder('Ingrese el motivo o comentario de la solicitud de pago')
-                            ->columnSpanFull()
-                            ->disabled(fn() => $this->isViewMode()),
+                            ->columnSpanFull(),
                     ]),
             ]);
     }
@@ -314,45 +307,30 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
     protected function getHeaderActions(): array
     {
-        $actions = [
+        return [
             Action::make('volver')
                 ->label('Volver al listado')
                 ->color('gray')
                 ->icon('heroicon-o-arrow-left')
                 ->url(SolicitudPagoResource::getUrl()),
+            Action::make('guardarBorrador')
+                ->label('Guardar borrador')
+                ->icon('heroicon-o-document-text')
+                ->color('warning')
+                ->action(fn() => $this->guardarSolicitud('PENDIENTE')),
+            Action::make('aprobarSolicitud')
+                ->label('Aprobar y enviar')
+                ->icon('heroicon-o-paper-airplane')
+                ->color('success')
+                ->action(fn() => $this->guardarSolicitud('APROBADO')),
         ];
-
-        if ($this->solicitud && $this->isViewMode()) {
-            $actions[] = Action::make('irAEdicion')
-                ->label('Editar solicitud')
-                ->color('primary')
-                ->icon('heroicon-o-pencil-square')
-                ->url(self::getUrl([
-                    'record' => $this->solicitud,
-                    'mode' => 'edit',
-                ]));
-
-            return $actions;
-        }
-
-        $actions[] = Action::make('guardarSolicitud')
-            ->label($this->solicitud ? 'Actualizar solicitud' : 'Crear Solicitud de Pago')
-            ->icon('heroicon-o-document-plus')
-            ->color('primary')
-            ->action(fn() => $this->guardarSolicitud());
-
-        return $actions;
     }
 
-    protected function guardarSolicitud(): void
+    protected function guardarSolicitud(string $estado = 'PENDIENTE'): void
     {
-        if ($this->isViewMode()) {
-            return;
-        }
-
         $montoAprobado = (float) ($this->filters['monto_aprobado'] ?? $this->totalSeleccionado ?? 0);
 
-        if ($montoAprobado <= 0) {
+        if ($estado === 'APROBADO' && $montoAprobado <= 0) {
             Notification::make()
                 ->title('Ingrese un monto aprobado válido')
                 ->warning()
@@ -361,24 +339,10 @@ class SolicitudPagoFacturas extends Page implements HasForms
             return;
         }
 
-        if ($this->totalSeleccionado <= 0) {
+        if ($estado === 'APROBADO' && $this->totalSeleccionado <= 0) {
             Notification::make()
                 ->title('Ingrese un abono para al menos una factura')
                 ->warning()
-                ->send();
-
-            return;
-        }
-
-        if ($this->solicitud) {
-            $this->solicitud->update([
-                'monto_aprobado' => $montoAprobado,
-                'motivo' => $this->filters['motivo'] ?? null,
-            ]);
-
-            Notification::make()
-                ->title('Solicitud de Pago actualizada')
-                ->success()
                 ->send();
 
             return;
@@ -395,11 +359,11 @@ class SolicitudPagoFacturas extends Page implements HasForms
             return;
         }
 
-        $conexion = collect($this->filters['conexiones'] ?? [])->first();
+        $conexion = $this->solicitud?->id_empresa ?? collect($this->filters['conexiones'] ?? [])->first();
 
         if (! $conexion) {
             Notification::make()
-                ->title('Seleccione una conexión para crear la solicitud')
+                ->title('Seleccione una conexión para guardar la solicitud')
                 ->warning()
                 ->send();
 
@@ -408,7 +372,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         $montoEstimado = $this->totalSeleccionado;
 
-        if ($montoEstimado > $montoAprobado) {
+        if ($estado === 'APROBADO' && $montoEstimado > $montoAprobado) {
             Notification::make()
                 ->title('El abono supera el monto aprobado')
                 ->body('Ajuste los valores de abono o incremente el monto aprobado para continuar.')
@@ -418,19 +382,19 @@ class SolicitudPagoFacturas extends Page implements HasForms
             return;
         }
 
-        DB::transaction(function () use ($conexion, $selected, $montoEstimado, $montoAprobado) {
+        DB::transaction(function () use ($conexion, $selected, $montoEstimado, $montoAprobado, $estado) {
             $empresasSeleccionadas = $this->groupOptionsByConnection($this->filters['empresas'] ?? []);
             $sucursalesSeleccionadas = $this->groupOptionsByConnection($this->filters['sucursales'] ?? []);
             $primerProveedor = collect($selected)->pluck('proveedor_codigo')->filter()->first();
             $proveedorNombre = collect($selected)->pluck('proveedor_nombre')->filter()->unique()->implode(', ');
 
-            $solicitud = SolicitudPago::create([
+            $payload = [
                 'id_empresa' => $conexion,
                 'amdg_id_empresa' => collect($empresasSeleccionadas)->flatten()->first() ?? '',
                 'amdg_id_sucursal' => collect($sucursalesSeleccionadas)->flatten()->first() ?? null,
                 'proveedor_id' => $primerProveedor ?? '',
                 'proveedor_nombre' => $proveedorNombre,
-                'fecha' => Carbon::now(),
+                'fecha' => $this->solicitud?->fecha ?? Carbon::now(),
                 'tipo_solicitud' => 'Pago de Facturas',
                 'empresas_seleccionadas' => $empresasSeleccionadas,
                 'sucursales_seleccionadas' => $sucursalesSeleccionadas,
@@ -441,8 +405,17 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 'monto_utilizado' => $montoEstimado,
                 'motivo' => $this->filters['motivo'] ?? null,
                 'aprobado_por_id' => Auth::id(),
-                'estado' => 'PENDIENTE',
-            ]);
+                'estado' => $estado,
+            ];
+
+            if ($this->solicitud) {
+                $this->solicitud->update($payload);
+                $this->solicitud->detalles()->delete();
+                $solicitud = $this->solicitud;
+            } else {
+                $solicitud = SolicitudPago::create($payload);
+                $this->solicitud = $solicitud;
+            }
 
             $detalles = $this->mapDetallesDesdeSeleccion($selected, $conexion);
 
@@ -451,11 +424,16 @@ class SolicitudPagoFacturas extends Page implements HasForms
             }
         });
 
-        $this->selectedInvoices = [];
+        if ($this->solicitud) {
+            $this->solicitud->refresh(['detalles']);
+            $this->hydrateFromRecord();
+        }
+
+        $this->selectedInvoices = $this->solicitud ? $this->selectedInvoices : [];
 
         Notification::make()
-            ->title('Solicitud de Pago creada')
-            ->body('La solicitud se generó con las facturas seleccionadas.')
+            ->title($this->solicitud ? 'Solicitud de Pago guardada' : 'Solicitud de Pago creada')
+            ->body($estado === 'APROBADO' ? 'La solicitud fue aprobada y enviada.' : 'La solicitud quedó guardada como borrador.')
             ->success()
             ->send();
     }
@@ -466,6 +444,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
             ->map(function (array $factura) use ($conexion) {
                 $abono = (float) ($factura['abono'] ?? $factura['saldo'] ?? 0);
                 $saldo = (float) ($factura['saldo'] ?? 0);
+                $total = (float) ($factura['total'] ?? $factura['monto'] ?? $saldo);
 
                 return [
                     'id_empresa' => $factura['conexion_id'] ?? $conexion,
@@ -478,13 +457,31 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     'fecha_emision' => $factura['fecha_emision'] ?? null,
                     'fecha_vencimiento' => $factura['fecha_vencimiento'] ?? null,
                     'monto' => isset($factura['monto']) ? (float) $factura['monto'] : $saldo,
+                    'total' => $total,
                     'saldo' => $saldo,
                     'abono' => $abono,
                     'saldo_pendiente' => max(0, $saldo - $abono),
+                    'estado_abono' => $this->resolveEstadoAbono($total, $abono),
                 ];
             })
             ->values()
             ->all();
+    }
+
+    protected function resolveEstadoAbono(float $total, float $abono): string
+    {
+        $total = max(0, $total);
+        $abono = max(0, $abono);
+
+        if ($abono <= 0) {
+            return 'SIN_ABONO';
+        }
+
+        if ($total > 0 && $abono >= $total) {
+            return 'ABONADO_TOTAL';
+        }
+
+        return 'ABONADO_PARCIAL';
     }
 
     protected function getSelectedInvoices(): array
@@ -682,6 +679,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     'numero' => $row->numero_factura,
                     'fecha_emision' => $row->fecha_emision,
                     'fecha_vencimiento' => $row->fecha_vencimiento,
+                    'total' => abs((float) $row->saldo),
                     'saldo' => abs((float) $row->saldo),
                 ];
             })
@@ -904,9 +902,10 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 'numero' => $detalle->numero_factura ?? '',
                 'fecha_emision' => $detalle->fecha_emision,
                 'fecha_vencimiento' => $detalle->fecha_vencimiento,
-
+                'total' => (float) ($detalle->total ?? $detalle->monto ?? $detalle->saldo ?? 0),
                 'saldo' => (float) ($detalle->saldo ?? 0),
                 'abono' => (float) ($detalle->abono ?? $detalle->saldo ?? 0),
+                'estado_abono' => $detalle->estado_abono ?? $this->resolveEstadoAbono((float) ($detalle->total ?? $detalle->monto ?? $detalle->saldo ?? 0), (float) ($detalle->abono ?? $detalle->saldo ?? 0)),
             ]);
         }
 
@@ -985,8 +984,4 @@ class SolicitudPagoFacturas extends Page implements HasForms
             ->all();
     }
 
-    protected function isViewMode(): bool
-    {
-        return (bool) $this->solicitud && $this->mode === 'view';
-    }
 }
