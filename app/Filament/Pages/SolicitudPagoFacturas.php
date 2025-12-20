@@ -73,6 +73,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 'monto_aprobado' => null,
                 'motivo' => null,
                 'conexiones' => [],
+                'monto_estimado' => 0,
             ]);
         }
     }
@@ -145,6 +146,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
             })
             ->all();
 
+        $this->filters['monto_estimado'] = $this->montoEsperado;
+
         $this->form->fill($this->filters);
     }
 
@@ -154,6 +157,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
             ->statePath('filters')
             ->schema([
                 Section::make('Datos de la solicitud')
+                    ->hidden()
                     ->columns(3)
 
                     ->schema([
@@ -243,12 +247,14 @@ class SolicitudPagoFacturas extends Page implements HasForms
             ->prefix('$')
             ->disabled()
             ->dehydrated(false)
-             ->afterStateHydrated(function (TextInput $component, $state): void {
-                $component->state($state ?? ($this->filters['monto_estimado'] ?? 0));
+            ->afterStateHydrated(function (TextInput $component, $state): void {
+                $component->state($this->filters['monto_estimado'] ?? $state ?? 0);
             })
-            ->formatStateUsing(fn ($state) =>
-                number_format((float) ($state ?? 0), 2, '.', ',')
-            ),
+            ->formatStateUsing(function ($state) {
+                $value = $this->filters['monto_estimado'] ?? $state ?? 0;
+
+                return number_format((float) $value, 2, '.', ',');
+            }),
 
         // Monto aprobado (VALOR REAL)
         TextInput::make('monto_aprobado')
@@ -286,6 +292,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $this->invoiceAbonos = [];
         $this->facturasDisponibles = [];
         $this->openProviders = [];
+        $this->filters['monto_estimado'] = $this->montoEsperado;
     }
 
     public function loadFacturas(): void
@@ -314,6 +321,13 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $selected = collect($this->getSelectedInvoices());
 
         return $selected->sum(fn (array $factura) => (float) ($factura['abono'] ?? 0));
+    }
+
+    public function getMontoEsperadoProperty(): float
+    {
+        $selected = collect($this->getSelectedInvoices());
+
+        return $selected->sum(fn (array $factura) => (float) ($factura['saldo'] ?? $factura['total'] ?? 0));
     }
 
     public function getPresupuestoDisponibleProperty(): float
@@ -347,6 +361,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
     protected function guardarSolicitud(string $estado = 'PENDIENTE'): void
     {
         $montoAprobado = (float) ($this->filters['monto_aprobado'] ?? $this->totalSeleccionado ?? 0);
+        $montoEstimado = $this->montoEsperado;
+        $montoUtilizado = $this->totalSeleccionado;
 
         if ($estado === 'APROBADO' && $montoAprobado <= 0) {
             Notification::make()
@@ -388,9 +404,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
             return;
         }
 
-        $montoEstimado = $this->totalSeleccionado;
-
-        if ($estado === 'APROBADO' && $montoEstimado > $montoAprobado) {
+        if ($estado === 'APROBADO' && $montoUtilizado > $montoAprobado) {
             Notification::make()
                 ->title('El abono supera el monto aprobado')
                 ->body('Ajuste los valores de abono o incremente el monto aprobado para continuar.')
@@ -400,16 +414,17 @@ class SolicitudPagoFacturas extends Page implements HasForms
             return;
         }
 
-        DB::transaction(function () use ($conexion, $selected, $montoEstimado, $montoAprobado, $estado) {
+        DB::transaction(function () use ($conexion, $selected, $montoEstimado, $montoAprobado, $montoUtilizado, $estado) {
             $empresasSeleccionadas = $this->groupOptionsByConnection($this->filters['empresas'] ?? []);
             $sucursalesSeleccionadas = $this->groupOptionsByConnection($this->filters['sucursales'] ?? []);
             $primerProveedor = collect($selected)->pluck('proveedor_codigo')->filter()->first();
             $proveedorNombre = collect($selected)->pluck('proveedor_nombre')->filter()->unique()->implode(', ');
+            $primerFactura = collect($selected)->first();
 
             $payload = [
                 'id_empresa' => $conexion,
-                'amdg_id_empresa' => collect($empresasSeleccionadas)->flatten()->first() ?? '',
-                'amdg_id_sucursal' => collect($sucursalesSeleccionadas)->flatten()->first() ?? null,
+                'amdg_id_empresa' => $primerFactura['empresa_codigo'] ?? collect($empresasSeleccionadas)->flatten()->first() ?? '',
+                'amdg_id_sucursal' => $primerFactura['sucursal_codigo'] ?? collect($sucursalesSeleccionadas)->flatten()->first() ?? null,
                 'proveedor_id' => $primerProveedor ?? '',
                 'proveedor_nombre' => $proveedorNombre,
                 'fecha' => $this->solicitud?->fecha ?? Carbon::now(),
@@ -420,7 +435,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 'total' => $montoEstimado,
                 'monto_estimado' => $montoEstimado,
                 'monto_aprobado' => $montoAprobado,
-                'monto_utilizado' => $montoEstimado,
+                'monto_utilizado' => $montoUtilizado,
                 'motivo' => $this->filters['motivo'] ?? null,
                 'aprobado_por_id' => Auth::id(),
                 'estado' => $estado,
@@ -549,6 +564,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
         }
 
         $this->invoiceAbonos = array_intersect_key($this->invoiceAbonos, $keysIndex);
+
+        $this->filters['monto_estimado'] = $this->montoEsperado;
     }
 
     public function updatedInvoiceAbonos($value, string $key): void
