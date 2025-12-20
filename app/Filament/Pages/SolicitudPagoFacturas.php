@@ -7,6 +7,8 @@ use App\Models\SolicitudPago;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Actions;
+use Filament\Forms\Components\Actions\Action as FormAction;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -49,6 +51,10 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
     public string $search = '';
 
+    public ?string $sortField = 'proveedor_nombre';
+
+    public string $sortDirection = 'asc';
+
     public function mount(): void
     {
         $recordId = request()->integer('record');
@@ -66,8 +72,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         $this->mode = 'create';
         $this->form->fill([
-            'fecha_desde' => Carbon::now()->subMonth()->startOfDay(),
-            'fecha_hasta' => Carbon::now()->addMonth()->endOfDay(),
+            'fecha_desde' => Carbon::now()->subYears(5)->startOfDay(),
+            'fecha_hasta' => Carbon::now()->endOfDay(),
             'monto_aprobado' => null,
             'motivo' => null,
             'conexiones' => [],
@@ -77,6 +83,16 @@ class SolicitudPagoFacturas extends Page implements HasForms
     public function updatedSearch(): void
     {
         $this->resetPage();
+    }
+
+    public function generateReport(): void
+    {
+        if ($this->solicitud) {
+            return;
+        }
+
+        $this->resetPage();
+        $this->loadFacturas();
     }
 
     public function getAbonoEnUsoProperty(): float
@@ -160,7 +176,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                                 $set('empresas', $empresas);
                                 $set('sucursales', $sucursales);
                                 $this->resetPage();
-                                $this->loadFacturas();
+                                $this->resetFacturasData();
                             }),
                         Select::make('empresas')
                             ->label('Empresa')
@@ -173,7 +189,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                             ->afterStateUpdated(function (): void {
                                 $this->syncSucursales();
                                 $this->resetPage();
-                                $this->loadFacturas();
+                                $this->resetFacturasData();
                             }),
                         Select::make('sucursales')
                             ->label('Sucursal')
@@ -188,7 +204,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                             ->hidden(fn() => (bool) $this->solicitud)
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadFacturas();
+                                $this->resetFacturasData();
                             }),
                     ]),
                 Section::make('Filtros de búsqueda')
@@ -197,20 +213,27 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     ->schema([
                         DatePicker::make('fecha_desde')
                             ->label('Fecha desde')
-                            ->default(Carbon::now()->subMonth()->startOfDay())
+                            ->default(Carbon::now()->subYears(5)->startOfDay())
                             ->live()
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadFacturas();
+                                $this->resetFacturasData();
                             }),
                         DatePicker::make('fecha_hasta')
                             ->label('Fecha hasta')
-                            ->default(Carbon::now()->addMonth()->endOfDay())
+                            ->default(Carbon::now()->endOfDay())
                             ->live()
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
-                                $this->loadFacturas();
+                                $this->resetFacturasData();
                             }),
+                        Actions::make([
+                            FormAction::make('generateReport')
+                                ->label('Generar reporte')
+                                ->icon('heroicon-o-document-arrow-down')
+                                ->color('primary')
+                                ->action(fn() => $this->generateReport()),
+                        ])->columnSpan(1),
                     ]),
                 Section::make('Resumen y aprobación')
                     ->columns(2)
@@ -245,6 +268,14 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $this->filters['sucursales'] = $this->buildDefaultSucursalesSelection($conexiones, $empresas);
     }
 
+    protected function resetFacturasData(): void
+    {
+        $this->selectedInvoices = [];
+        $this->invoiceAbonos = [];
+        $this->facturasDisponibles = [];
+        $this->openProviders = [];
+    }
+
     public function loadFacturas(): void
     {
         if ($this->solicitud) {
@@ -257,9 +288,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $desde = $this->filters['fecha_desde'] ?? null;
         $hasta = $this->filters['fecha_hasta'] ?? null;
 
-        $this->selectedInvoices = [];
-        $this->invoiceAbonos = [];
-        $this->facturasDisponibles = [];
+        $this->resetFacturasData();
 
         if (empty($conexiones)) {
             return;
@@ -779,7 +808,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
     public function getProvidersPaginatedProperty(): LengthAwarePaginator
     {
         $filtrados = $this->applySearch($this->facturasDisponibles);
-        $proveedores = collect($filtrados);
+        $proveedores = $this->applySort(collect($filtrados))->values();
         $page = $this->getPage();
         $items = $proveedores->forPage($page, $this->perPage)->values();
 
@@ -789,6 +818,53 @@ class SolicitudPagoFacturas extends Page implements HasForms
             $this->perPage,
             $page
         );
+    }
+
+    public function sortBy(string $field): void
+    {
+        if ($this->sortField === $field) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortField = $field;
+            $this->sortDirection = 'asc';
+        }
+
+        $this->resetPage();
+    }
+
+    protected function applySort($proveedores)
+    {
+        if (! $this->sortField) {
+            return collect($proveedores);
+        }
+
+        return collect($proveedores)->sortBy(
+            function (array $proveedor) {
+                return match ($this->sortField) {
+                    'total' => (float) ($proveedor['total'] ?? 0),
+                    'selected' => $this->providerHasSelection($proveedor) ? 1 : 0,
+                    default => mb_strtolower($proveedor['proveedor_nombre'] ?? $proveedor['proveedor_codigo'] ?? ''),
+                };
+            },
+            descending: $this->sortDirection === 'desc'
+        );
+    }
+
+    protected function providerHasSelection(array $proveedor): bool
+    {
+        $selected = collect($this->selectedInvoices);
+
+        foreach ($proveedor['empresas'] ?? [] as $empresa) {
+            foreach ($empresa['sucursales'] ?? [] as $sucursal) {
+                foreach ($sucursal['facturas'] ?? [] as $factura) {
+                    if ($selected->contains($factura['key'] ?? null)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     protected function buildFacturasDesdeSolicitud(SolicitudPago $solicitud): array

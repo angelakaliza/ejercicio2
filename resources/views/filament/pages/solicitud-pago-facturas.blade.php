@@ -118,10 +118,33 @@
                         <table class="min-w-full divide-y divide-gray-200 text-sm">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-4 py-2 text-left font-semibold text-gray-700">Proveedor</th>
-                                    <th class="px-4 py-2 text-right font-semibold text-gray-700">Total</th>
+                                    <th class="px-4 py-2 text-left font-semibold text-gray-700">
+                                        <button type="button" wire:click="sortBy('proveedor_nombre')"
+                                            class="flex items-center gap-1">
+                                            Proveedor
+                                            @if ($sortField === 'proveedor_nombre')
+                                                <span class="text-xs text-amber-600">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                                            @endif
+                                        </button>
+                                    </th>
+                                    <th class="px-4 py-2 text-right font-semibold text-gray-700">
+                                        <button type="button" wire:click="sortBy('total')" class="flex items-center gap-1 float-right">
+                                            Total
+                                            @if ($sortField === 'total')
+                                                <span class="text-xs text-amber-600">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                                            @endif
+                                        </button>
+                                    </th>
                                     <th class="px-4 py-2 text-left font-semibold text-gray-700">Facturas</th>
-                                    <th class="px-4 py-2 text-center font-semibold text-gray-700">Seleccionar</th>
+                                    <th class="px-4 py-2 text-center font-semibold text-gray-700">
+                                        <button type="button" wire:click="sortBy('selected')"
+                                            class="flex items-center justify-center gap-1 w-full">
+                                            Seleccionar
+                                            @if ($sortField === 'selected')
+                                                <span class="text-xs text-amber-600">{{ $sortDirection === 'asc' ? '▲' : '▼' }}</span>
+                                            @endif
+                                        </button>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 bg-white">
