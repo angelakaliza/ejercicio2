@@ -6,14 +6,13 @@
                     Resumen de la solicitud
                 </x-slot>
 
-                @php
-                    // Nombres de conexiones (empresas)
-                    $conexionesIds = $this->filters['conexiones'] ?? [$this->solicitud->id_empresa];
-                    $conexionesNombres = \App\Models\Empresa::query()
-                        ->whereIn('id', $conexionesIds)
-                        ->pluck('nombre_empresa')
-                        ->implode(', ');
-                @endphp
+               @php
+        $conexionesIds = $this->filters['conexiones'] ?? [$this->solicitud->id_empresa];
+        $conexionesNombres = \App\Models\Empresa::query()
+            ->whereIn('id', $conexionesIds)
+            ->pluck('nombre_empresa')
+            ->implode(', ');
+    @endphp
 
                 <div class="flex flex-wrap gap-4">
                     <div class="flex-1 min-w-[180px] rounded-lg border border-gray-200 bg-white p-4">

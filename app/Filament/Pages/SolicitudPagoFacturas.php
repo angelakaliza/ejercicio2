@@ -6,9 +6,9 @@ use App\Filament\Resources\SolicitudPagoResource;
 use App\Models\SolicitudPago;
 use Filament\Actions\Action;
 use Filament\Forms;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action as FormAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -18,10 +18,10 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\WithPagination;
 
 class SolicitudPagoFacturas extends Page implements HasForms
@@ -40,7 +40,9 @@ class SolicitudPagoFacturas extends Page implements HasForms
     public array $facturasDisponibles = [];
 
     public array $selectedInvoices = [];
+
     public array $openProviders = [];
+
     public array $invoiceAbonos = [];
 
     public ?SolicitudPago $solicitud = null;
@@ -63,7 +65,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
         if ($this->solicitud) {
             $this->hydrateFromRecord();
         }
-        
+
         if (! $this->solicitud) {
             $this->form->fill([
                 'fecha_desde' => Carbon::now()->subYears(5)->startOfDay(),
@@ -92,16 +94,15 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
     public function getAbonoEnUsoProperty(): float
     {
-        return collect($this->invoiceAbonos)->sum(fn($v) => max(0, (float) $v));
+        return collect($this->invoiceAbonos)->sum(fn ($v) => max(0, (float) $v));
     }
 
     public function getTotalFacturasProperty(): float
     {
         return collect($this->facturasDisponibles)
-            ->flatMap(fn(array $proveedor) => collect($proveedor['empresas'] ?? [])->flatMap(fn(array $empresa) => collect($empresa['sucursales'] ?? [])->flatMap(fn(array $sucursal) => collect($sucursal['facturas'] ?? []))))
-            ->sum(fn(array $factura) => (float) ($factura['saldo'] ?? 0));
+            ->flatMap(fn (array $proveedor) => collect($proveedor['empresas'] ?? [])->flatMap(fn (array $empresa) => collect($empresa['sucursales'] ?? [])->flatMap(fn (array $sucursal) => collect($sucursal['facturas'] ?? []))))
+            ->sum(fn (array $factura) => (float) ($factura['saldo'] ?? 0));
     }
-
 
     protected function hydrateFromRecord(): void
     {
@@ -117,7 +118,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         $this->facturasDisponibles = $this->buildFacturasDesdeSolicitud($this->solicitud);
         $this->selectedInvoices = collect($this->solicitud->detalles ?? [])
-            ->map(fn($detalle) => $this->buildFacturaKey(
+            ->map(fn ($detalle) => $this->buildFacturaKey(
                 $detalle->id_empresa,
                 $detalle->amdg_id_empresa,
                 $detalle->amdg_id_sucursal,
@@ -154,6 +155,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
             ->schema([
                 Section::make('Datos de la solicitud')
                     ->columns(3)
+
                     ->schema([
                         Select::make('conexiones')
                             ->label('Conexiones')
@@ -163,7 +165,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
                             ->preload()
                             ->live()
                             ->required()
-                            ->disabled(fn() => (bool) $this->solicitud)
+                            ->hidden()
+                            ->dehydrated(true)
                             ->afterStateUpdated(function (Forms\Set $set, ?array $state): void {
                                 $empresas = $this->buildDefaultEmpresasSelection($state ?? []);
                                 $sucursales = $this->buildDefaultSucursalesSelection($state ?? [], $empresas);
@@ -173,14 +176,15 @@ class SolicitudPagoFacturas extends Page implements HasForms
                                 $this->resetPage();
                                 $this->resetFacturasData();
                             }),
+
                         Select::make('empresas')
                             ->label('Empresa')
                             ->multiple()
-                            ->options(fn(Forms\Get $get): array => $this->getEmpresasOptionsByConnections($get('conexiones') ?? []))
+                            ->options(fn (Forms\Get $get): array => $this->getEmpresasOptionsByConnections($get('conexiones') ?? []))
                             ->searchable()
                             ->preload()
                             ->live()
-                            ->hidden(fn() => (bool) $this->solicitud)
+                            ->hidden(fn () => (bool) $this->solicitud)
                             ->afterStateUpdated(function (): void {
                                 $this->syncSucursales();
                                 $this->resetPage();
@@ -189,21 +193,21 @@ class SolicitudPagoFacturas extends Page implements HasForms
                         Select::make('sucursales')
                             ->label('Sucursal')
                             ->multiple()
-                            ->options(fn(Forms\Get $get): array => $this->getSucursalesOptionsByConnections(
+                            ->options(fn (Forms\Get $get): array => $this->getSucursalesOptionsByConnections(
                                 $get('conexiones') ?? [],
                                 $this->groupOptionsByConnection($get('empresas') ?? []),
                             ))
                             ->searchable()
                             ->preload()
                             ->live()
-                            ->hidden(fn() => (bool) $this->solicitud)
+                            ->hidden(fn () => (bool) $this->solicitud)
                             ->afterStateUpdated(function (): void {
                                 $this->resetPage();
                                 $this->resetFacturasData();
                             }),
                     ]),
                 Section::make('Filtros de búsqueda')
-                    ->hidden(fn() => (bool) $this->solicitud)
+                    ->hidden(fn () => (bool) $this->solicitud)
                     ->columns(4)
                     ->schema([
                         DatePicker::make('fecha_desde')
@@ -227,29 +231,44 @@ class SolicitudPagoFacturas extends Page implements HasForms
                                 ->label('Generar reporte')
                                 ->icon('heroicon-o-document-arrow-down')
                                 ->color('primary')
-                                ->action(fn() => $this->generateReport()),
+                                ->action(fn () => $this->generateReport()),
                         ])->columnSpan(1),
                     ]),
-                Section::make('Resumen y aprobación')
-                    ->columns(2)
-                    ->schema([
-                        Forms\Components\Placeholder::make('monto_estimado')
-                            ->label('Monto estimado (total seleccionado)')
-                            ->content(fn() => '$' . number_format($this->totalSeleccionado, 2, '.', ',')),
-                        TextInput::make('monto_aprobado')
-                            ->label('Monto aprobado')
-                            ->required()
-                            ->numeric()
-                            ->prefix('$')
-                            ->minValue(0.01)
-                            ->default(fn() => $this->filters['monto_aprobado'] ?? null),
-                        Textarea::make('motivo')
-                            ->label('Comentario / Motivo')
-                            ->rows(3)
-                            ->maxLength(1000)
-                            ->placeholder('Ingrese el motivo o comentario de la solicitud de pago')
-                            ->columnSpanFull(),
-                    ]),
+         Section::make('Resumen y aprobación')
+    ->columns(3)
+    ->schema([
+        // Monto estimado (SOLO VISTA, viene de monto_esperado)
+        TextInput::make('monto_estimado')
+            ->label('Monto esperado')
+            ->prefix('$')
+            ->disabled()
+            ->dehydrated(false)
+             ->afterStateHydrated(function (TextInput $component, $state): void {
+                $component->state($state ?? ($this->filters['monto_estimado'] ?? 0));
+            })
+            ->formatStateUsing(fn ($state) =>
+                number_format((float) ($state ?? 0), 2, '.', ',')
+            ),
+
+        // Monto aprobado (VALOR REAL)
+        TextInput::make('monto_aprobado')
+            ->label('Monto aprobado')
+            ->prefix('$')
+            ->disabled()
+            ->dehydrated(false)
+            ->afterStateHydrated(function (TextInput $component, $state): void {
+                $component->state($state ?? ($this->filters['monto_aprobado'] ?? 0));
+            })
+            ->formatStateUsing(fn ($state) =>
+                number_format((float) ($state ?? 0), 2, '.', ',')
+            ),
+
+        Textarea::make('motivo')
+            ->label('Motivo')
+            ->rows(2)
+            ->maxLength(1000)
+            ->placeholder('Ingrese el motivo...'),
+        ]),
             ]);
     }
 
@@ -294,7 +313,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
     {
         $selected = collect($this->getSelectedInvoices());
 
-        return $selected->sum(fn(array $factura) => (float) ($factura['abono'] ?? 0));
+        return $selected->sum(fn (array $factura) => (float) ($factura['abono'] ?? 0));
     }
 
     public function getPresupuestoDisponibleProperty(): float
@@ -303,7 +322,6 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         return max(0, $aprobado - $this->abonoEnUso);
     }
-
 
     protected function getHeaderActions(): array
     {
@@ -317,12 +335,12 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 ->label('Guardar borrador')
                 ->icon('heroicon-o-document-text')
                 ->color('warning')
-                ->action(fn() => $this->guardarSolicitud('PENDIENTE')),
+                ->action(fn () => $this->guardarSolicitud('PENDIENTE')),
             Action::make('aprobarSolicitud')
                 ->label('Aprobar y enviar')
                 ->icon('heroicon-o-paper-airplane')
                 ->color('success')
-                ->action(fn() => $this->guardarSolicitud('APROBADO')),
+                ->action(fn () => $this->guardarSolicitud('APROBADO')),
         ];
     }
 
@@ -398,7 +416,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 'tipo_solicitud' => 'Pago de Facturas',
                 'empresas_seleccionadas' => $empresasSeleccionadas,
                 'sucursales_seleccionadas' => $sucursalesSeleccionadas,
-                'proveedores_seleccionados' => collect($selected)->map(fn(array $factura) => $factura['proveedor_key'] ?? null)->filter()->unique()->values()->all(),
+                'proveedores_seleccionados' => collect($selected)->map(fn (array $factura) => $factura['proveedor_key'] ?? null)->filter()->unique()->values()->all(),
                 'total' => $montoEstimado,
                 'monto_estimado' => $montoEstimado,
                 'monto_aprobado' => $montoAprobado,
@@ -511,7 +529,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     });
                 });
             })
-            ->filter(fn(array $factura) => $selectedKeys->contains($factura['key'] ?? null))
+            ->filter(fn (array $factura) => $selectedKeys->contains($factura['key'] ?? null))
             ->values()
             ->all();
     }
@@ -541,6 +559,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
         // Normaliza: permite "1,23" y strings vacíos mientras escribe
         if ($value === '' || $value === null) {
             $this->invoiceAbonos[$key] = 0;
+
             return;
         }
 
@@ -552,7 +571,6 @@ class SolicitudPagoFacturas extends Page implements HasForms
         // Redondeo para evitar números raros por float
         $this->invoiceAbonos[$key] = round($ajustado, 2);
     }
-
 
     protected function resolveAbono(array $factura): float
     {
@@ -574,7 +592,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         $totalSinEsta = collect($this->invoiceAbonos)
             ->except($key)
-            ->sum(fn($v) => max(0, (float) $v));
+            ->sum(fn ($v) => max(0, (float) $v));
 
         $montoAprobado = (float) ($this->filters['monto_aprobado'] ?? 0);
         $disponible = max(0, $montoAprobado - $totalSinEsta);
@@ -589,12 +607,10 @@ class SolicitudPagoFacturas extends Page implements HasForms
         return $abonoFinal;
     }
 
-
-
     protected function findFacturaByKey(string $key): array
     {
         return collect($this->facturasDisponibles)
-            ->flatMap(fn(array $proveedor) => collect($proveedor['empresas'] ?? [])->flatMap(fn(array $empresa) => collect($empresa['sucursales'] ?? [])->flatMap(fn(array $sucursal) => collect($sucursal['facturas'] ?? []))))
+            ->flatMap(fn (array $proveedor) => collect($proveedor['empresas'] ?? [])->flatMap(fn (array $empresa) => collect($empresa['sucursales'] ?? [])->flatMap(fn (array $sucursal) => collect($sucursal['facturas'] ?? []))))
             ->firstWhere('key', $key) ?? [];
     }
 
@@ -638,7 +654,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     ->on('prov.clpv_cod_clpv', '=', 'saedmcp.clpv_cod_clpv');
             })
             ->whereIn('saedmcp.dmcp_cod_empr', $empresas)
-            ->when(! empty($sucursales), fn($q) => $q->whereIn('saedmcp.dmcp_cod_sucu', $sucursales))
+            ->when(! empty($sucursales), fn ($q) => $q->whereIn('saedmcp.dmcp_cod_sucu', $sucursales))
             ->where('saedmcp.dmcp_est_dcmp', '<>', 'AN')
             ->selectRaw('
                 saedmcp.dmcp_cod_empr   as empresa,
@@ -674,7 +690,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
                     'sucursal_codigo' => $sucursalCodigo,
                     'sucursal_nombre' => $sucursalesDisponibles[$sucursalCodigo] ?? $sucursalCodigo,
                     'proveedor_codigo' => $row->proveedor_codigo,
-                    'proveedor_nombre' => $row->proveedor_nombre ?? ($proveedoresBase[$empresaCodigo . '|' . $sucursalCodigo . '|' . $row->proveedor_codigo]['nombre'] ?? $row->proveedor_codigo),
+                    'proveedor_nombre' => $row->proveedor_nombre ?? ($proveedoresBase[$empresaCodigo.'|'.$sucursalCodigo.'|'.$row->proveedor_codigo]['nombre'] ?? $row->proveedor_codigo),
                     'proveedor_ruc' => $row->proveedor_ruc,
                     'numero' => $row->numero_factura,
                     'fecha_emision' => $row->fecha_emision,
@@ -692,8 +708,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
 
         foreach ($registros as $row) {
             $proveedorKey = $this->buildProveedorKey($row['proveedor_codigo'] ?? '', $row['proveedor_ruc'] ?? '', $row['proveedor_nombre'] ?? '');
-            $empresaKey = ($row['conexion_id'] ?? '') . '|' . ($row['empresa_codigo'] ?? '');
-            $sucursalKey = $empresaKey . '|' . ($row['sucursal_codigo'] ?? '');
+            $empresaKey = ($row['conexion_id'] ?? '').'|'.($row['empresa_codigo'] ?? '');
+            $sucursalKey = $empresaKey.'|'.($row['sucursal_codigo'] ?? '');
 
             if (! isset($agrupado[$proveedorKey])) {
                 $agrupado[$proveedorKey] = [
@@ -882,7 +898,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $registros = collect();
 
         foreach ($solicitud->detalles as $detalle) {
-            $empresaCodigo  = (string) ($detalle->amdg_id_empresa ?? '');
+            $empresaCodigo = (string) ($detalle->amdg_id_empresa ?? '');
             $sucursalCodigo = (string) ($detalle->amdg_id_sucursal ?? '');
 
             $registros->push([
@@ -912,15 +928,14 @@ class SolicitudPagoFacturas extends Page implements HasForms
         return $this->groupByProveedor($registros);
     }
 
-
     protected function buildFacturaKey(?string $conexion, ?string $empresa, ?string $sucursal, ?string $proveedor, ?string $numero): string
     {
-        return trim(($conexion ?? '') . '|' . ($empresa ?? '') . '|' . ($sucursal ?? '') . '|' . ($proveedor ?? '') . '|' . ($numero ?? ''));
+        return trim(($conexion ?? '').'|'.($empresa ?? '').'|'.($sucursal ?? '').'|'.($proveedor ?? '').'|'.($numero ?? ''));
     }
 
     protected function buildProveedorKey(?string $codigo, ?string $ruc, ?string $nombre): string
     {
-        return md5(trim(($codigo ?? '') . '|' . ($ruc ?? '') . '|' . ($nombre ?? '')));
+        return md5(trim(($codigo ?? '').'|'.($ruc ?? '').'|'.($nombre ?? '')));
     }
 
     protected function getEmpresasOptionsByConnections(array $conexiones): array
@@ -928,8 +943,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
         return collect($conexiones)
             ->flatMap(function ($conexion) {
                 return collect(SolicitudPagoResource::getEmpresasOptions($conexion))
-                    ->mapWithKeys(fn($nombre, $codigo) => [
-                        $conexion . '|' . $codigo => $nombre,
+                    ->mapWithKeys(fn ($nombre, $codigo) => [
+                        $conexion.'|'.$codigo => $nombre,
                     ]);
             })
             ->all();
@@ -942,8 +957,8 @@ class SolicitudPagoFacturas extends Page implements HasForms
                 $empresas = $empresasSeleccionadas[$conexion] ?? [];
 
                 return collect(SolicitudPagoResource::getSucursalesOptions($conexion, $empresas))
-                    ->mapWithKeys(fn($nombre, $codigo) => [
-                        $conexion . '|' . $codigo => $nombre,
+                    ->mapWithKeys(fn ($nombre, $codigo) => [
+                        $conexion.'|'.$codigo => $nombre,
                     ]);
             })
             ->all();
@@ -967,7 +982,7 @@ class SolicitudPagoFacturas extends Page implements HasForms
     protected function buildDefaultEmpresasSelection(array $conexiones): array
     {
         return collect($conexiones)
-            ->flatMap(fn($conexion) => collect(SolicitudPagoResource::getEmpresasOptions($conexion))->keys()->map(fn($codigo) => $conexion . '|' . $codigo))
+            ->flatMap(fn ($conexion) => collect(SolicitudPagoResource::getEmpresasOptions($conexion))->keys()->map(fn ($codigo) => $conexion.'|'.$codigo))
             ->values()
             ->all();
     }
@@ -977,11 +992,10 @@ class SolicitudPagoFacturas extends Page implements HasForms
         $empresas = $this->groupOptionsByConnection($empresasSeleccionadas);
 
         return collect($conexiones)
-            ->flatMap(fn($conexion) => collect(SolicitudPagoResource::getSucursalesOptions($conexion, $empresas[$conexion] ?? []))
+            ->flatMap(fn ($conexion) => collect(SolicitudPagoResource::getSucursalesOptions($conexion, $empresas[$conexion] ?? []))
                 ->keys()
-                ->map(fn($codigo) => $conexion . '|' . $codigo))
+                ->map(fn ($codigo) => $conexion.'|'.$codigo))
             ->values()
             ->all();
     }
-
 }
