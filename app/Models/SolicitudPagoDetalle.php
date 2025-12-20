@@ -18,15 +18,18 @@ class SolicitudPagoDetalle extends Model
         'fecha_emision',
         'fecha_vencimiento',
         'monto',
+        'total',
         'saldo',
         'abono',
         'saldo_pendiente',
+        'estado_abono',
     ];
 
     protected $casts = [
         'fecha_emision' => 'date',
         'fecha_vencimiento' => 'date',
         'monto' => 'float',
+        'total' => 'float',
         'saldo' => 'float',
         'abono' => 'float',
         'saldo_pendiente' => 'float',
