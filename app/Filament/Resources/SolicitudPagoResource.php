@@ -432,23 +432,8 @@ class SolicitudPagoResource extends Resource
                                     $resumen .= '<span class="text-amber-700">Subtotal: $' . number_format($infoSucursal['total'], 2, '.', ',') . '</span>';
                                     $resumen .= '</div>';
 
-                                    $resumen .= '<div class="overflow-hidden rounded-md border border-gray-200">';
-                                    $resumen .= '<table class="w-full border-collapse text-xs">';
-                                    $resumen .= '<thead class="bg-slate-100 text-left text-slate-700">';
-                                    $resumen .= '<tr>';
-                                    $resumen .= '<th class="px-3 py-2">Factura</th>';
-                                    $resumen .= '<th class="px-3 py-2">Proveedor</th>';
-                                    $resumen .= '<th class="px-3 py-2">Emisión</th>';
-                                    $resumen .= '<th class="px-3 py-2">Vence</th>';
-                                    $resumen .= '<th class="px-3 py-2 text-right">Saldo</th>';
-                                    $resumen .= '</tr>';
-                                    $resumen .= '</thead>';
-                                    $resumen .= '<tbody class="divide-y divide-gray-100">';
-
+                                    $resumen .= '<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">';
                                     foreach ($infoSucursal['facturas'] as $factura) {
-                                        $resumen .= '<tr class="odd:bg-white even:bg-slate-50">';
-                                        $resumen .= '<td class="px-3 py-2">' . e($factura['numero'] ?? '') . '</td>';
-                                        $resumen .= '<td class="px-3 py-2">' . e($factura['proveedor_nombre'] ?? '') . '</td>';
                                         $fechaEmision = filled($factura['fecha_emision'] ?? null)
                                             ? Carbon::parse($factura['fecha_emision'])->format('Y-m-d')
                                             : '';
@@ -456,13 +441,21 @@ class SolicitudPagoResource extends Resource
                                             ? Carbon::parse($factura['fecha_vencimiento'])->format('Y-m-d')
                                             : '';
 
-                                        $resumen .= '<td class="px-3 py-2">' . e($fechaEmision) . '</td>';
-                                        $resumen .= '<td class="px-3 py-2">' . e($fechaVencimiento) . '</td>';
-                                        $resumen .= '<td class="px-3 py-2 text-right font-semibold">$' . number_format((float) ($factura['saldo'] ?? 0), 2, '.', ',') . '</td>';
-                                        $resumen .= '</tr>';
+                                        $resumen .= '<div class="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">';
+                                        $resumen .= '<div class="flex items-center justify-between text-xs text-slate-500">';
+                                        $resumen .= '<span>Factura ' . e($factura['numero'] ?? '') . '</span>';
+                                        $resumen .= '<span class="font-semibold text-emerald-700 text-lg">$' . number_format((float) ($factura['saldo'] ?? 0), 2, '.', ',') . '</span>';
+                                        $resumen .= '</div>';
+                                        $resumen .= '<div class="mt-2 space-y-1 text-sm text-slate-700">';
+                                        $resumen .= '<div class="font-semibold">' . e($factura['proveedor_nombre'] ?? '') . '</div>';
+                                        $resumen .= '<div class="flex items-center justify-between text-xs text-slate-500">';
+                                        $resumen .= '<span>Emisión: ' . e($fechaEmision) . '</span>';
+                                        $resumen .= '<span>Vence: ' . e($fechaVencimiento) . '</span>';
+                                        $resumen .= '</div>';
+                                        $resumen .= '</div>';
+                                        $resumen .= '</div>';
                                     }
-
-                                    $resumen .= '</tbody></table></div>';
+                                    $resumen .= '</div>';
                                     $resumen .= '</div>';
                                 }
                                 $resumen .= '</div>';

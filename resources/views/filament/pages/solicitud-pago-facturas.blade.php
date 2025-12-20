@@ -282,10 +282,10 @@
                                                                                                         ] ?? 0),
                                                                                                         $disponibleParaFactura,
                                                                                                     );
-                                                                                                @endphp
+                                                                                                    @endphp
 
 
-                                                                                                <div x-data="{
+                                                                                                    <div x-data="{
                                                                                                     key: @js($key),
                                                                                                     saldo: {{ $saldoFactura }},
                                                                                                     draft: @js(number_format($abonoActual, 2, '.', '')),
@@ -363,6 +363,20 @@
                                                                                                         x-on:blur="commit()"
                                                                                                         class="w-28 rounded border border-gray-300 px-2 py-1 text-right text-sm focus:border-amber-500 focus:ring-amber-500"
                                                                                                         @disabled($allowSelection && !in_array($key, $this->selectedInvoices)) />
+
+                                                                                                    @php
+                                                                                                        $estadoAbono = 'No se ha abonado';
+
+                                                                                                        if ($abonoActual > 0 && $abonoActual < $saldoFactura) {
+                                                                                                            $estadoAbono = 'Falta abonar';
+                                                                                                        } elseif ($abonoActual >= $saldoFactura && $saldoFactura > 0) {
+                                                                                                            $estadoAbono = 'Está abonado';
+                                                                                                        }
+                                                                                                    @endphp
+
+                                                                                                    <div class="mt-1 text-[11px] font-semibold text-slate-700">
+                                                                                                        {{ $estadoAbono }}
+                                                                                                    </div>
 
                                                                                                     <div
                                                                                                         class="text-[11px] text-gray-500">
