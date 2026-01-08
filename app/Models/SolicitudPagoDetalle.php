@@ -19,6 +19,8 @@ class SolicitudPagoDetalle extends Model
         'fecha_vencimiento',
         'monto',
         'saldo',
+        'abono',
+        'saldo_pendiente',
     ];
 
     protected $casts = [
@@ -26,6 +28,8 @@ class SolicitudPagoDetalle extends Model
         'fecha_vencimiento' => 'date',
         'monto' => 'float',
         'saldo' => 'float',
+        'abono' => 'float',
+        'saldo_pendiente' => 'float',
     ];
 
     public function solicitudPago()
